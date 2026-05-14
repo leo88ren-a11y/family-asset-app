@@ -1,0 +1,51 @@
+# Android
+*.iml
+.gradle
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Android app
+frontend/android-app/app/build/
+frontend/android-app/build/
+frontend/android-app/.gradle/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.env
+venv/
+ENV/
+
+# Node
+node_modules/
+dist/
+.npm
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
