@@ -3,8 +3,6 @@ name: Build Android APK
 on:
   push:
     branches: [ main ]
-    paths:
-      - 'frontend/android-app/**'
   workflow_dispatch:
 
 jobs:
