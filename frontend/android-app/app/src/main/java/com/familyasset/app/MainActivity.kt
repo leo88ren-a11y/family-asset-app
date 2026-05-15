@@ -99,7 +99,7 @@ class MainActivity : AppCompatActivity() {
             }
             
             // Android 5.0+ 需要这个方法
-            fun onShowFileChooser(
+            override fun onShowFileChooser(
                 webView: WebView?,
                 filePathCallback: android.webkit.ValueCallback<Array<Uri>>?,
                 fileChooserParams: android.webkit.WebChromeClient.FileChooserParams?
