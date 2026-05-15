@@ -71,7 +71,6 @@ jobs:
       env:
         ANDROID_HOME: $HOME/android-sdk
         ANDROID_SDK_ROOT: $HOME/android-sdk
-        JAVA_HOME: ${{ steps.jdk.outputs.path }}
       run: |
         export ANDROID_HOME=$HOME/android-sdk
         export ANDROID_SDK_ROOT=$HOME/android-sdk
@@ -80,36 +79,32 @@ jobs:
         echo "=== Environment ==="
         echo "JAVA_HOME=$JAVA_HOME"
         echo "ANDROID_HOME=$ANDROID_HOME"
-        echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
         which aapt || echo "aapt NOT FOUND"
-        which dx || echo "dx NOT FOUND"
         
         echo "=== Running Gradle ==="
-        ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tail -80
+        ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tail -100
     
-    - name: Build Release APK
-      if: always()
+    - name: Verify APK files exist
       working-directory: frontend/android-app
-      env:
-        ANDROID_HOME: $HOME/android-sdk
-        ANDROID_SDK_ROOT: $HOME/android-sdk
+      if: always()
       run: |
-        export ANDROID_HOME=$HOME/android-sdk
-        export ANDROID_SDK_ROOT=$HOME/android-sdk
-        ./gradlew assembleRelease --no-daemon 2>&1 | tail -30
+        echo "=== Checking APK output directories ==="
+        find . -name "*.apk" -type f 2>/dev/null || echo "NO APK FILES FOUND"
+        echo "=== Build outputs structure ==="
+        find app/build/outputs -type f 2>/dev/null | head -30 || echo "NO BUILD OUTPUTS"
     
     - name: Upload Debug APK
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: app-debug
-        path: frontend/android-app/app/build/outputs/apk/debug/app-debug.apk
-        if-no-files-found: ignore
+        name: app-debug-apk
+        path: frontend/android-app/app/build/outputs/apk/debug/*.apk
+        if-no-files-found: warn
     
     - name: Upload Release APK
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: app-release
-        path: frontend/android-app/app/build/outputs/apk/release/app-release.apk
-        if-no-files-found: ignore
+        name: app-release-apk
+        path: frontend/android-app/app/build/outputs/apk/release/*.apk
+        if-no-files-found: warn
