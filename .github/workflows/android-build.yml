@@ -17,9 +17,26 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
+        cache: 'gradle'
     
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v2
+    - name: Download Android SDK
+      run: |
+        mkdir -p $HOME/android-sdk/cmdline-tools
+        cd $HOME/android-sdk/cmdline-tools
+        curl -sL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o cmdline-tools.zip
+        unzip -q cmdline-tools.zip
+        mv cmdline-tools latest
+        rm cmdline-tools.zip
+    
+    - name: Install Android SDK components
+      env:
+        ANDROID_HOME: $HOME/android-sdk
+        PATH: $PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+      run: |
+        export ANDROID_HOME=$HOME/android-sdk
+        export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+        yes | sdkmanager --licenses || true
+        sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" --sdk_root=$ANDROID_HOME
     
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
@@ -29,16 +46,31 @@ jobs:
     - name: Make gradlew executable
       working-directory: frontend/android-app
       run: |
-        gradle wrapper
+        gradle wrapper --gradle-version 8.5
         chmod +x gradlew
     
     - name: Build Debug APK
       working-directory: frontend/android-app
-      run: ./gradlew assembleDebug --no-daemon
+      env:
+        ANDROID_HOME: $HOME/android-sdk
+        ANDROID_SDK_ROOT: $HOME/android-sdk
+      run: |
+        export ANDROID_HOME=$HOME/android-sdk
+        export ANDROID_SDK_ROOT=$HOME/android-sdk
+        export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+        ./gradlew assembleDebug --no-daemon -Dorg.gradle.java.home=$JAVA_HOME --stacktrace 2>&1 | tail -50
     
     - name: Build Release APK
+      if: always()
       working-directory: frontend/android-app
-      run: ./gradlew assembleRelease --no-daemon
+      env:
+        ANDROID_HOME: $HOME/android-sdk
+        ANDROID_SDK_ROOT: $HOME/android-sdk
+      run: |
+        export ANDROID_HOME=$HOME/android-sdk
+        export ANDROID_SDK_ROOT=$HOME/android-sdk
+        export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+        ./gradlew assembleRelease --no-daemon 2>&1 | tail -20
     
     - name: Upload Debug APK
       if: always()
