@@ -19,7 +19,7 @@ jobs:
         distribution: 'temurin'
         cache: 'gradle'
     
-    - name: Download Android SDK
+    - name: Download Android SDK command-line tools
       run: |
         mkdir -p $HOME/android-sdk/cmdline-tools
         cd $HOME/android-sdk/cmdline-tools
@@ -27,26 +27,43 @@ jobs:
         unzip -q cmdline-tools.zip
         mv cmdline-tools latest
         rm cmdline-tools.zip
+        ls -la latest/bin/
     
     - name: Install Android SDK components
       env:
         ANDROID_HOME: $HOME/android-sdk
-        PATH: $PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+        ANDROID_SDK_ROOT: $HOME/android-sdk
       run: |
         export ANDROID_HOME=$HOME/android-sdk
-        export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
-        yes | sdkmanager --licenses || true
-        sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" --sdk_root=$ANDROID_HOME
+        export ANDROID_SDK_ROOT=$HOME/android-sdk
+        export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
+        
+        echo "=== Accepting licenses ==="
+        yes | sdkmanager --licenses 2>&1 | tail -5
+        
+        echo "=== Installing SDK components ==="
+        sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" --sdk_root=$ANDROID_HOME 2>&1 | tail -20
+        
+        echo "=== Verifying installation ==="
+        ls $ANDROID_HOME/
+        ls $ANDROID_HOME/build-tools/ 2>/dev/null || echo "NO BUILD-TOOLS"
+        ls $ANDROID_HOME/platforms/ 2>/dev/null || echo "NO PLATFORMS"
     
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
-      with:
-        gradle-version: '8.5'
+    - name: Create local.properties
+      working-directory: frontend/android-app
+      env:
+        ANDROID_HOME: $HOME/android-sdk
+        ANDROID_SDK_ROOT: $HOME/android-sdk
+      run: |
+        echo "sdk.dir=$HOME/android-sdk" > local.properties
+        echo "android.sdk.root=$HOME/android-sdk" >> local.properties
+        cat local.properties
     
-    - name: Make gradlew executable
+    - name: Generate Gradle wrapper
       working-directory: frontend/android-app
       run: |
-        gradle wrapper --gradle-version 8.5
+        gradle wrapper --gradle-version=8.5
+        ls -la gradlew
         chmod +x gradlew
     
     - name: Build Debug APK
@@ -54,11 +71,21 @@ jobs:
       env:
         ANDROID_HOME: $HOME/android-sdk
         ANDROID_SDK_ROOT: $HOME/android-sdk
+        JAVA_HOME: ${{ steps.jdk.outputs.path }}
       run: |
         export ANDROID_HOME=$HOME/android-sdk
         export ANDROID_SDK_ROOT=$HOME/android-sdk
         export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
-        ./gradlew assembleDebug --no-daemon -Dorg.gradle.java.home=$JAVA_HOME --stacktrace 2>&1 | tail -50
+        
+        echo "=== Environment ==="
+        echo "JAVA_HOME=$JAVA_HOME"
+        echo "ANDROID_HOME=$ANDROID_HOME"
+        echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+        which aapt || echo "aapt NOT FOUND"
+        which dx || echo "dx NOT FOUND"
+        
+        echo "=== Running Gradle ==="
+        ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tail -80
     
     - name: Build Release APK
       if: always()
@@ -69,8 +96,7 @@ jobs:
       run: |
         export ANDROID_HOME=$HOME/android-sdk
         export ANDROID_SDK_ROOT=$HOME/android-sdk
-        export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
-        ./gradlew assembleRelease --no-daemon 2>&1 | tail -20
+        ./gradlew assembleRelease --no-daemon 2>&1 | tail -30
     
     - name: Upload Debug APK
       if: always()
