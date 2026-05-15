@@ -18,6 +18,9 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
     
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v2
+    
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       with:
@@ -26,7 +29,6 @@ jobs:
     - name: Make gradlew executable
       working-directory: frontend/android-app
       run: |
-        # 生成 gradle wrapper 文件
         gradle wrapper
         chmod +x gradlew
     
