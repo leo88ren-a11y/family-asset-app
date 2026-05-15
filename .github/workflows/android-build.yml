@@ -8,89 +8,48 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
         cache: 'gradle'
-    
-    - name: Download Android SDK command-line tools
-      run: |
-        mkdir -p $HOME/android-sdk/cmdline-tools
-        cd $HOME/android-sdk/cmdline-tools
-        curl -sL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o cmdline-tools.zip
-        unzip -q cmdline-tools.zip
-        mv cmdline-tools latest
-        rm cmdline-tools.zip
-        ls -la latest/bin/
-    
-    - name: Install Android SDK components
-      run: |
-        export ANDROID_HOME=$HOME/android-sdk
-        export ANDROID_SDK_ROOT=$HOME/android-sdk
-        export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
-        
-        echo "=== Accepting licenses ==="
-        yes | sdkmanager --licenses 2>&1 | tail -5
-        
-        echo "=== Installing SDK components ==="
-        sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" --sdk_root=$ANDROID_HOME 2>&1 | tail -20
-        
-        echo "=== Verifying ==="
-        ls $ANDROID_HOME/build-tools/ 2>/dev/null || echo "NO BUILD-TOOLS"
-        ls $ANDROID_HOME/platforms/ 2>/dev/null || echo "NO PLATFORMS"
-    
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
     - name: Create local.properties
       working-directory: frontend/android-app
       run: |
-        echo "sdk.dir=$HOME/android-sdk" > local.properties
+        echo "sdk.dir=$ANDROID_HOME" > local.properties
         cat local.properties
-    
-    - name: Generate Gradle wrapper
+
+    - name: Verify Gradle wrapper
       working-directory: frontend/android-app
       run: |
-        gradle wrapper --gradle-version=8.5
         chmod +x gradlew
         ls -la gradlew gradle/wrapper/
-    
+        file gradle/wrapper/gradle-wrapper.jar
+
     - name: Build Debug APK
       working-directory: frontend/android-app
       run: |
-        set -o pipefail
-        export ANDROID_HOME=$HOME/android-sdk
-        export ANDROID_SDK_ROOT=$HOME/android-sdk
-        
-        echo "=== Building ==="
-        ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-debug.log | tail -100
-        
-        echo "=== Checking exit code ==="
-        echo "Gradle finished"
-    
+        ./gradlew assembleDebug --no-daemon --stacktrace
+
     - name: List build outputs
       if: always()
       working-directory: frontend/android-app
       run: |
         echo "=== All APK files ==="
         find . -name "*.apk" -type f -ls 2>/dev/null || echo "NO APK FILES FOUND"
-        echo "=== Build directory ==="
-        find app/build -type f 2>/dev/null | head -30 || echo "NO BUILD DIR"
-    
+
     - name: Upload Debug APK
       uses: actions/upload-artifact@v4
       with:
         name: app-debug-apk
         path: frontend/android-app/app/build/outputs/apk/debug/*.apk
         if-no-files-found: error
-    
-    - name: Upload Release APK
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-release-apk
-        path: frontend/android-app/app/build/outputs/apk/release/*.apk
-        if-no-files-found: warn
