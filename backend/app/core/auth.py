@@ -4,12 +4,17 @@ JWT 认证工具
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from passlib.context import CryptContext
 
 from app.core.config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# OAuth2 密码模式 - 从 Authorization header 提取 Bearer token
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -37,10 +42,9 @@ def decode_access_token(token: str) -> Optional[dict]:
         return None
 
 
-def get_current_user(token: str, oauth2_scheme) -> dict:
-    """从 JWT 提取当前用户"""
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+    """从 JWT 提取当前用户（FastAPI 依赖注入）"""
     payload = decode_access_token(token)
     if payload is None:
-        from fastapi import HTTPException, status
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录已过期，请重新登录")
     return payload

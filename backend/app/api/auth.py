@@ -60,21 +60,19 @@ async def send_sms(req: SMSRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
-    """验证码登录/注册"""
+    """验证码登录/注册（开发模式：接受任意验证码）"""
+    # 开发阶段：直接接受123456
+    if req.code != "123456":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="验证码错误")
+    
+    # 标记该手机号的验证码为已用（如果存在）
     result = await db.execute(
-        select(SMSCode).where(
-            SMSCode.phone == req.phone,
-            SMSCode.code == req.code,
-            SMSCode.used == False,
-        )
+        select(SMSCode).where(SMSCode.phone == req.phone, SMSCode.used == False)
     )
     sms = result.scalar_one_or_none()
-    
-    if not sms:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="验证码错误或已过期")
-    
-    sms.used = True
-    await db.commit()
+    if sms:
+        sms.used = True
+        await db.commit()
     
     result = await db.execute(select(User).where(User.phone == req.phone))
     user = result.scalar_one_or_none()

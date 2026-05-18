@@ -42,65 +42,48 @@
       <p class="ocr-sub">预计需要 3-5 秒，请稍候</p>
     </div>
 
-    <!-- ===== 步骤3：确认资产信息 ===== -->
+    <!-- ===== 步骤3：确认资产信息（多资产列表） ===== -->
     <div v-if="currentStep === 2" class="step-content">
       <div class="ocr-result-banner">
         <van-icon name="info-o" />
-        <span>识别结果仅供参考，请核对后确认</span>
+        <span>识别到 {{ ocrResult.items.length }} 项资产，请核对后逐一添加</span>
       </div>
 
-      <!-- 资产编辑表单 -->
-      <div class="asset-form">
-        <van-cell-group inset>
-          <van-field
-            v-model="form.name"
-            label="资产名称"
-            placeholder="如：腾讯控股"
-          />
-          <van-field
-            v-model="form.code"
-            label="代码/编号"
-            placeholder="如：00700.HK"
-          />
-          <van-field
-            v-model.number="form.amount"
-            type="number"
-            label="持仓金额"
-            placeholder="请输入金额"
+      <!-- 已识别的资产列表 -->
+      <div v-if="ocrResult.items.length > 0" class="asset-list">
+        <div
+          v-for="(item, idx) in ocrResult.items"
+          :key="idx"
+          class="asset-card"
+          :class="{ active: confirmedIndices.has(idx), disabled: confirmedIndices.has(idx) }"
+        >
+          <div class="asset-card-header">
+            <span class="asset-card-name">{{ item.name }}</span>
+            <span class="asset-card-amount">{{ item.amount?.toLocaleString() }} {{ item.currency }}</span>
+          </div>
+          <div class="asset-card-detail" v-if="item.code">
+            <span>{{ item.code }}</span>
+            <span>{{ getCategoryName(item.category) }}</span>
+          </div>
+          <van-button
+            size="small"
+            round
+            :type="confirmedIndices.has(idx) ? 'default' : 'primary'"
+            :disabled="confirmedIndices.has(idx)"
+            @click="confirmSingleAsset(item, idx)"
           >
-            <template #button>
-              <van-dropdown-menu :overlay="true">
-                <van-dropdown-item
-                  v-model="form.currency"
-                  :options="currencyOptions"
-                />
-              </van-dropdown-menu>
-            </template>
-          </van-field>
-          <van-field
-            label="资产分类"
-            :model-value="getCategoryName(form.category)"
-            is-link
-            readonly
-            @click="showCategoryPicker = true"
-          />
-          <van-field
-            v-model="form.platform"
-            label="来源平台"
-            placeholder="如：富途证券"
-          />
-        </van-cell-group>
+            {{ confirmedIndices.has(idx) ? '已添加' : '确认添加' }}
+          </van-button>
+        </div>
       </div>
 
-      <div class="ocr-raw-text" v-if="ocrResult.raw_text">
-        <div class="raw-text-header">原始识别文本</div>
-        <div class="raw-text-content">{{ ocrResult.raw_text }}</div>
+      <!-- 无结果提示 -->
+      <div v-else class="no-result">
+        <p>未识别到资产信息</p>
+        <p class="no-result-sub">可尝试重新上传更清晰的截图</p>
       </div>
 
       <div class="action-btns">
-        <van-button size="large" round :loading="saving" @click="confirmAsset">
-          确认添加
-        </van-button>
         <van-button size="large" round plain style="margin-top:12px;" @click="resetUpload">
           重新上传
         </van-button>
@@ -129,7 +112,7 @@ import { assetApi } from '../api'
 
 const router = useRouter()
 
-const steps = ['选择截图', 'AI 识别', '确认保存']
+const steps = ['选择截图', 'AI 识别', '确认保存'] // v2
 const currentStep = ref(0)
 const selectedImage = ref(null)
 const previewUrl = ref('')
@@ -138,31 +121,9 @@ const saving = ref(false)
 const showImagePreview = ref(false)
 const showCategoryPicker = ref(false)
 
-const ocrResult = ref({ success: false, items: [], raw_text: '' })
+const ocrResult = ref({ success: false, items: [] })
+const confirmedIndices = ref(new Set())  // 已确认添加的资产索引
 
-const form = ref({
-  name: '',
-  code: '',
-  amount: null,
-  currency: 'CNY',
-  category: 'equity',
-  platform: '',
-})
-
-const currencyOptions = [
-  { text: 'CNY', value: 'CNY' },
-  { text: 'USD', value: 'USD' },
-  { text: 'HKD', value: 'HKD' },
-  { text: 'EUR', value: 'EUR' },
-]
-
-const categoryColumns = [
-  { text: '权益类（股票/基金/REITs）', value: 'equity' },
-  { text: '债券类', value: 'bond' },
-  { text: '大宗商品（黄金/原油）', value: 'commodity' },
-  { text: '现金类（银行/货币基金）', value: 'cash' },
-  { text: '其他', value: 'other' },
-]
 
 function getCategoryName(cat) {
   const names = {
@@ -219,15 +180,8 @@ async function uploadImage() {
     const res = await assetApi.ocrUpload(selectedImage.value)
     ocrResult.value = res
     
-    // 自动填充第一个识别结果
-    if (res.items && res.items.length > 0) {
-      const item = res.items[0]
-      form.value.name = item.name || ''
-      form.value.code = item.code || ''
-      form.value.amount = item.amount || null
-      form.value.currency = item.currency || 'CNY'
-      form.value.category = item.category || 'equity'
-    }
+    // 显示所有识别结果
+    confirmedIndices.value.clear()
     
     currentStep.value = 2
   } catch (e) {
@@ -239,35 +193,23 @@ async function uploadImage() {
   }
 }
 
-function onCategoryConfirm({ selectedOptions }) {
-  form.value.category = selectedOptions[0].value
-  showCategoryPicker.value = false
-}
-
-async function confirmAsset() {
-  if (!form.value.name || !form.value.amount) {
-    showToast('请填写资产名称和金额')
-    return
-  }
-  
+async function confirmSingleAsset(item, idx) {
   saving.value = true
   try {
     await assetApi.ocrConfirm({
-      name: form.value.name,
-      code: form.value.code,
-      category: form.value.category,
-      amount: parseFloat(form.value.amount),
-      currency: form.value.currency,
+      name: item.name,
+      code: item.code || '',
+      category: item.category || 'equity',
+      amount: parseFloat(item.amount),
+      currency: item.currency || 'CNY',
       cost: null,
-      platform: form.value.platform,
+      platform: '',
     })
     
-    showSuccessToast('添加成功')
-    setTimeout(() => {
-      router.replace('/')
-    }, 1200)
+    confirmedIndices.value.add(idx)
+    showSuccessToast(`${item.name} 已添加`)
   } catch (e) {
-    showToast('保存失败')
+    showToast('保存失败：' + (e.message || '未知错误'))
   } finally {
     saving.value = false
   }
@@ -277,8 +219,8 @@ function resetUpload() {
   currentStep.value = 0
   selectedImage.value = null
   previewUrl.value = ''
-  ocrResult.value = { success: false, items: [], raw_text: '' }
-  form.value = { name: '', code: '', amount: null, currency: 'CNY', category: 'equity', platform: '' }
+  ocrResult.value = { success: false, items: [] }
+  confirmedIndices.value.clear()
 }
 </script>
 
@@ -475,27 +417,67 @@ function resetUpload() {
   margin-bottom: 12px;
 }
 
-.ocr-raw-text {
-  margin: 16px 16px 0;
+/* 资产卡片列表 */
+.asset-list {
+  margin-top: 12px;
+}
+
+.asset-card {
   background: white;
   border-radius: 12px;
-  overflow: hidden;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  border: 1.5px solid var(--gray-200);
+  transition: all 0.2s;
 }
 
-.raw-text-header {
+.asset-card.active {
+  opacity: 0.5;
+  background: var(--gray-50);
+  border-color: #10B981;
+}
+
+.asset-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.asset-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-800);
+}
+
+.asset-card-amount {
+  font-size: 15px;
+  font-weight: 700;
+  color: #3B82F6;
+}
+
+.asset-card-detail {
+  display: flex;
+  gap: 12px;
   font-size: 12px;
   color: var(--gray-400);
-  padding: 10px 14px 6px;
+  margin-bottom: 10px;
 }
 
-.raw-text-content {
-  font-size: 12px;
-  color: var(--gray-500);
-  padding: 0 14px 12px;
-  font-family: monospace;
-  line-height: 1.6;
-  max-height: 80px;
-  overflow-y: auto;
+.asset-card .van-button {
+  min-width: 90px;
+}
+
+.no-result {
+  text-align: center;
+  padding: 40px 0;
+  color: var(--gray-400);
+}
+
+.no-result-sub {
+  font-size: 13px;
+  color: var(--gray-300);
+  margin-top: 4px;
 }
 
 .action-btns {

@@ -60,9 +60,7 @@ export const assetApi = {
   ocrUpload: (file) => {
     const formData = new FormData()
     formData.append('file', file)
-    return api.post('/assets/ocr/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
+    return api.post('/assets/ocr/upload', formData)
   },
   ocrConfirm: (data) => api.post('/assets/ocr/confirm', data),
 }
