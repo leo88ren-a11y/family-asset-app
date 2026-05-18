@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -20,8 +21,10 @@ class MainActivity : AppCompatActivity() {
     private var filePathCallback: android.webkit.ValueCallback<Array<Uri>>? = null
     
     companion object {
-        // 生产环境地址
-        private const val H5_URL = "http://101.34.58.166"
+        // 生产环境地址（带版本参数，强制 WebView 不用缓存）
+        private const val H5_BASE_URL = "http://101.34.58.166"
+        private const val H5_VERSION = "v2"
+        private const val H5_URL = "$H5_BASE_URL?$H5_VERSION"
     }
     
     // 文件选择器 launcher
@@ -56,11 +59,21 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         
         webView = findViewById(R.id.webView)
+        
+        // 每次启动清除 WebView 缓存，确保加载最新前端
+        clearWebViewCache()
+        
         setupWebView()
         
-        if (savedInstanceState == null) {
-            webView.loadUrl(H5_URL)
-        }
+        // 始终加载最新 URL，不用 savedInstanceState 恢复旧页面
+        webView.loadUrl(H5_URL)
+    }
+    
+    private fun clearWebViewCache() {
+        webView.clearCache(true)
+        webView.clearHistory()
+        webView.clearFormData()
+        CookieManager.getInstance().removeAllCookies(null)
     }
     
     private fun setupWebView() {
@@ -74,7 +87,8 @@ class MainActivity : AppCompatActivity() {
             useWideViewPort = true
             loadWithOverviewMode = true
             mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-            cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
+            // 禁用 WebView 缓存，始终从服务器加载最新资源
+            cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
         }
         
         // 支持深色模式
@@ -122,13 +136,5 @@ class MainActivity : AppCompatActivity() {
         }
     }
     
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        webView.saveState(outState)
-    }
-    
-    override fun onRestoreInstanceState(savedInstanceState: Bundle) {
-        super.onRestoreInstanceState(savedInstanceState)
-        webView.restoreState(savedInstanceState)
-    }
+    // 删除 saveState/restoreState — 不再恢复旧 WebView 状态，避免缓存旧页面
 }
