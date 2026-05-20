@@ -42,49 +42,125 @@
       <p class="ocr-sub">预计需要 3-5 秒，请稍候</p>
     </div>
 
-    <!-- ===== 步骤3：确认资产信息（多资产列表） ===== -->
+    <!-- ===== 步骤3：确认并编辑资产信息 ===== -->
     <div v-if="currentStep === 2" class="step-content">
-      <div class="ocr-result-banner">
+      <!-- 结果提示 -->
+      <div class="ocr-result-banner" :class="{ 'banner-warn': editableItems.length === 0 }">
         <van-icon name="info-o" />
-        <span>识别到 {{ ocrResult.items.length }} 项资产，请核对后逐一添加</span>
+        <span v-if="editableItems.length > 0">识别到 {{ editableItems.length }} 项资产，请核对并编辑后保存</span>
+        <span v-else>未识别到资产信息，可尝试重新上传更清晰的截图</span>
       </div>
 
-      <!-- 已识别的资产列表 -->
-      <div v-if="ocrResult.items.length > 0" class="asset-list">
+      <!-- 可编辑资产列表 -->
+      <div v-if="editableItems.length > 0" class="asset-edit-list">
         <div
-          v-for="(item, idx) in ocrResult.items"
+          v-for="(item, idx) in editableItems"
           :key="idx"
-          class="asset-card"
-          :class="{ active: confirmedIndices.has(idx), disabled: confirmedIndices.has(idx) }"
+          class="asset-edit-card"
+          :class="{ saved: item.saved }"
         >
-          <div class="asset-card-header">
-            <span class="asset-card-name">{{ item.name }}</span>
-            <span class="asset-card-amount">{{ item.amount?.toLocaleString() }} {{ item.currency }}</span>
+          <!-- 卡片头部：资产序号 + 名称 + 删除按钮 -->
+          <div class="edit-card-header">
+            <span class="edit-card-index">资产 {{ idx + 1 }}</span>
+            <van-icon
+              v-if="!item.saved"
+              name="delete-o"
+              color="#999"
+              size="18"
+              @click="removeAsset(idx)"
+            />
+            <van-icon v-else name="passed" color="#10B981" size="18" />
           </div>
-          <div class="asset-card-detail" v-if="item.code">
-            <span>{{ item.code }}</span>
-            <span>{{ getCategoryName(item.category) }}</span>
+
+          <!-- 可编辑字段 -->
+          <van-cell-group inset>
+            <!-- 资产名称 -->
+            <van-field
+              v-model="item.name"
+              label="名称"
+              placeholder="如：中证500ETF"
+              :border="false"
+              input-align="right"
+            />
+            <!-- 代码 -->
+            <van-field
+              v-model="item.code"
+              label="代码"
+              placeholder="如：510500.SH"
+              :border="false"
+              input-align="right"
+            />
+            <!-- 分类 -->
+            <van-field
+              v-model="item.categoryLabel"
+              is-link
+              readonly
+              label="分类"
+              placeholder="选择分类"
+              :border="false"
+              @click="openCategoryPicker(idx)"
+            />
+            <!-- 金额 -->
+            <van-field
+              v-model="item.amountStr"
+              label="金额"
+              type="text"
+              inputmode="decimal"
+              placeholder="输入金额"
+              :formatter="formatAmount"
+              :border="false"
+              input-align="right"
+              @blur="onAmountBlur(item)"
+            >
+              <template #button>
+                <span class="currency-tag">{{ item.currency }}</span>
+              </template>
+            </van-field>
+            <!-- 成本（可选） -->
+            <van-field
+              v-model="item.costStr"
+              label="成本（选填）"
+              type="text"
+              inputmode="decimal"
+              placeholder="输入成本价"
+              :formatter="formatAmount"
+              :border="false"
+              input-align="right"
+              @blur="onCostBlur(item)"
+            >
+              <template #button>
+                <span class="currency-tag">{{ item.currency }}</span>
+              </template>
+            </van-field>
+          </van-cell-group>
+
+          <!-- 已保存标识 -->
+          <div v-if="item.saved" class="edit-card-action">
+            <div class="saved-badge">
+              <van-icon name="passed" /> 已保存
+            </div>
           </div>
-          <van-button
-            size="small"
-            round
-            :type="confirmedIndices.has(idx) ? 'default' : 'primary'"
-            :disabled="confirmedIndices.has(idx)"
-            @click="confirmSingleAsset(item, idx)"
-          >
-            {{ confirmedIndices.has(idx) ? '已添加' : '确认添加' }}
-          </van-button>
         </div>
       </div>
 
-      <!-- 无结果提示 -->
-      <div v-else class="no-result">
-        <p>未识别到资产信息</p>
-        <p class="no-result-sub">可尝试重新上传更清晰的截图</p>
+      <!-- 全部保存按钮 -->
+      <div v-if="editableItems.length > 0" class="action-btns">
+        <van-button
+          size="large"
+          round
+          type="primary"
+          :loading="savingAll"
+          :disabled="allSaved || savingAll"
+          @click="saveAllAssets"
+        >
+          {{ allSaved ? '全部已保存' : '全部保存' }}
+        </van-button>
+        <van-button size="large" round plain @click="resetUpload" style="margin-top: 10px;">
+          重新上传
+        </van-button>
       </div>
-
-      <div class="action-btns">
-        <van-button size="large" round plain style="margin-top:12px;" @click="resetUpload">
+      <div v-else class="action-btns">
+        <van-button size="large" round plain @click="resetUpload">
           重新上传
         </van-button>
       </div>
@@ -105,43 +181,55 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { showToast, showSuccessToast, showLoadingToast, closeToast } from 'vant'
+import { showToast, showSuccessToast, closeToast } from 'vant'
 import { assetApi } from '../api'
 
 const router = useRouter()
 
-const steps = ['选择截图', 'AI 识别', '确认保存'] // v2
+const steps = ['选择截图', 'AI 识别', '确认保存']
 const currentStep = ref(0)
 const selectedImage = ref(null)
 const previewUrl = ref('')
 const uploading = ref(false)
-const saving = ref(false)
 const showImagePreview = ref(false)
 const showCategoryPicker = ref(false)
+const currentEditIndex = ref(-1) // 当前正在编辑分类的资产索引
 
-const ocrResult = ref({ success: false, items: [] })
-const confirmedIndices = ref(new Set())  // 已确认添加的资产索引
+// 分类选项
+const categoryColumns = [
+  { text: '权益类', value: 'equity' },
+  { text: '债券类', value: 'bond' },
+  { text: '大宗商品', value: 'commodity' },
+  { text: '现金类', value: 'cash' },
+  { text: '其他', value: 'other' },
+]
 
+// 可编辑资产列表（每项都是响应式对象）
+const editableItems = ref([])
+const savingAll = ref(false)
 
-function getCategoryName(cat) {
-  const names = {
+// 是否全部已保存
+const allSaved = computed(() =>
+  editableItems.value.length > 0 && editableItems.value.every(item => item.saved)
+)
+
+function getCategoryLabel(cat) {
+  const map = {
     equity: '权益类',
     bond: '债券类',
     commodity: '大宗商品',
     cash: '现金类',
     other: '其他',
   }
-  return names[cat] || cat
+  return map[cat] || cat || '权益类'
 }
 
 function pickImage() {
-  // 通过 Android 桥接调用原生相册
   if (window.AndroidBridge && window.AndroidBridge.pickImage) {
     window.AndroidBridge.pickImage()
   } else {
-    // H5 降级：file input
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = 'image/*'
@@ -153,9 +241,8 @@ function pickImage() {
   }
 }
 
-// Android 回调：图片选择完成
+// Android 回调
 function onImageSelected(filePath) {
-  // 从 filePath 加载文件（通过 fetch blob）
   fetch(filePath)
     .then(r => r.blob())
     .then(blob => {
@@ -163,7 +250,6 @@ function onImageSelected(filePath) {
       handleFileSelect(file)
     })
 }
-
 window.onImageSelected = onImageSelected
 
 function handleFileSelect(file) {
@@ -175,14 +261,27 @@ async function uploadImage() {
   if (!selectedImage.value) return
   uploading.value = true
   currentStep.value = 1
-  
+
   try {
     const res = await assetApi.ocrUpload(selectedImage.value)
-    ocrResult.value = res
-    
-    // 显示所有识别结果
-    confirmedIndices.value.clear()
-    
+
+    // 将 OCR 结果转为可编辑表单数据
+    const items = (res.items || []).map(item => ({
+      name: item.name || '',
+      code: item.code || '',
+      category: item.category || 'equity',
+      categoryLabel: getCategoryLabel(item.category),
+      amount: parseFloat(item.amount) || 0,
+      amountStr: toFixed2(parseFloat(item.amount) || 0),
+      cost: item.cost ? parseFloat(item.cost) : null,
+      costStr: item.cost ? toFixed2(parseFloat(item.cost)) : '',
+      currency: item.currency || 'CNY',
+      platform: item.platform || '',
+      saved: false,
+      saving: false,
+    }))
+
+    editableItems.value = items
     currentStep.value = 2
   } catch (e) {
     console.error(e)
@@ -193,34 +292,88 @@ async function uploadImage() {
   }
 }
 
-async function confirmSingleAsset(item, idx) {
-  saving.value = true
-  try {
-    await assetApi.ocrConfirm({
-      name: item.name,
-      code: item.code || '',
-      category: item.category || 'equity',
-      amount: parseFloat(item.amount),
-      currency: item.currency || 'CNY',
-      cost: null,
-      platform: '',
-    })
-    
-    confirmedIndices.value.add(idx)
-    showSuccessToast(`${item.name} 已添加`)
-  } catch (e) {
-    showToast('保存失败：' + (e.message || '未知错误'))
-  } finally {
-    saving.value = false
+function openCategoryPicker(idx) {
+  currentEditIndex.value = idx
+  showCategoryPicker.value = true
+}
+
+function onCategoryConfirm({ selectedOptions }) {
+  if (currentEditIndex.value >= 0 && currentEditIndex.value < editableItems.value.length) {
+    const item = editableItems.value[currentEditIndex.value]
+    item.category = selectedOptions[0]?.value || 'equity'
+    item.categoryLabel = selectedOptions[0]?.text || '权益类'
   }
+  showCategoryPicker.value = false
+  currentEditIndex.value = -1
+}
+
+// -------- 金额格式化 --------
+function toFixed2(val) {
+  if (val === null || val === undefined || val === '') return ''
+  const n = parseFloat(val)
+  if (isNaN(n)) return ''
+  return n.toFixed(2)
+}
+
+// Vant formatter：只允许合法小数格式
+function formatAmount(value) {
+  // 允许：空、整数、小数（最多两位）
+  return value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1').replace(/^(\d*\.\d{0,2}).*/g, '$1')
+}
+
+// 失焦时确保两位小数显示
+function onAmountBlur(item) {
+  item.amountStr = toFixed2(item.amountStr)
+}
+
+function onCostBlur(item) {
+  item.costStr = toFixed2(item.costStr)
+}
+
+// -------- 全部保存 --------
+async function saveAllAssets() {
+  // 检查是否有未填名称的
+  const emptyNames = editableItems.value.filter(item => !item.name.trim())
+  if (emptyNames.length > 0) {
+    showToast('请填写所有资产的名称后再保存')
+    return
+  }
+
+  savingAll.value = true
+  try {
+    await Promise.all(
+      editableItems.value
+        .filter(item => !item.saved)
+        .map(item =>
+          assetApi.create({
+            name: item.name.trim(),
+            code: item.code.trim(),
+            category: item.category,
+            amount: parseFloat(item.amountStr) || 0,
+            currency: item.currency,
+            cost: item.costStr ? parseFloat(item.costStr) : null,
+            platform: item.platform,
+          }).then(() => { item.saved = true })
+          .catch(e => { throw new Error(`${item.name} 保存失败`) })
+        )
+    )
+    showSuccessToast(`已保存 ${editableItems.value.length} 项资产`)
+  } catch (e) {
+    showToast(e.message || '保存失败，请重试')
+  } finally {
+    savingAll.value = false
+  }
+}
+
+function removeAsset(idx) {
+  editableItems.value.splice(idx, 1)
 }
 
 function resetUpload() {
   currentStep.value = 0
   selectedImage.value = null
   previewUrl.value = ''
-  ocrResult.value = { success: false, items: [] }
-  confirmedIndices.value.clear()
+  editableItems.value = []
 }
 </script>
 
@@ -248,7 +401,6 @@ function resetUpload() {
   font-size: 13px;
   color: var(--gray-400);
 }
-
 .step.active { color: #3B82F6; font-weight: 600; }
 .step.done { color: #10B981; }
 
@@ -263,17 +415,13 @@ function resetUpload() {
   font-size: 11px;
   font-weight: 700;
 }
-
 .step.done .step-dot {
   background: #10B981;
   border-color: #10B981;
   color: white;
 }
 
-.step-label {
-  font-size: 13px;
-}
-
+.step-label { font-size: 13px; }
 .step:not(:last-child)::after {
   content: '';
   display: block;
@@ -283,11 +431,9 @@ function resetUpload() {
   margin: 0 8px;
 }
 
-/* 步骤内容 */
-.step-content {
-  padding: 16px;
-}
+.step-content { padding: 16px; }
 
+/* 上传区域 */
 .upload-area {
   background: white;
   border-radius: 16px;
@@ -297,33 +443,17 @@ function resetUpload() {
   border: 2px dashed var(--gray-200);
   transition: border-color 0.2s;
 }
+.upload-area:active { border-color: #3B82F6; }
 
-.upload-area:active {
-  border-color: #3B82F6;
-}
-
-.upload-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
-}
-
+.upload-icon { font-size: 48px; margin-bottom: 12px; }
 .upload-title {
   font-size: 17px;
   font-weight: 600;
   color: var(--gray-800);
   margin-bottom: 6px;
 }
-
-.upload-sub {
-  font-size: 14px;
-  color: var(--gray-500);
-  margin-bottom: 4px;
-}
-
-.upload-formats {
-  font-size: 12px;
-  color: var(--gray-400);
-}
+.upload-sub { font-size: 14px; color: var(--gray-500); margin-bottom: 4px; }
+.upload-formats { font-size: 12px; color: var(--gray-400); }
 
 .image-preview {
   margin-top: 16px;
@@ -331,14 +461,12 @@ function resetUpload() {
   border-radius: 16px;
   overflow: hidden;
 }
-
 .image-preview img {
   width: 100%;
   max-height: 300px;
   object-fit: contain;
   background: var(--gray-100);
 }
-
 .preview-actions {
   display: flex;
   justify-content: center;
@@ -346,12 +474,11 @@ function resetUpload() {
   padding: 12px;
 }
 
-/* OCR 加载动画 */
+/* OCR 加载 */
 .ocr-loading {
   padding: 60px 24px;
   text-align: center;
 }
-
 .ocr-animation {
   position: relative;
   width: 100px;
@@ -361,7 +488,6 @@ function resetUpload() {
   align-items: center;
   justify-content: center;
 }
-
 .ocr-ring {
   position: absolute;
   inset: 0;
@@ -370,114 +496,97 @@ function resetUpload() {
   border-top-color: #3B82F6;
   animation: spin 1s linear infinite;
 }
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.ocr-icon {
-  font-size: 36px;
-}
-
+@keyframes spin { to { transform: rotate(360deg); } }
+.ocr-icon { font-size: 36px; }
 .ocr-title {
   font-size: 18px;
   font-weight: 600;
   color: var(--gray-800);
   margin-bottom: 8px;
 }
+.ocr-sub { font-size: 14px; color: var(--gray-400); }
 
-.ocr-sub {
-  font-size: 14px;
-  color: var(--gray-400);
-}
-
-/* 资产表单 */
-.asset-form {
-  margin-top: 16px;
-}
-
-:deep(.van-cell-group--inset) {
-  margin: 0;
-  border-radius: 12px;
-}
-
-:deep(.van-dropdown-menu) {
-  height: 24px;
-}
-
+/* 结果提示 */
 .ocr-result-banner {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: #FFF7ED;
-  color: #D97706;
+  background: #EFF6FF;
+  color: #3B82F6;
   font-size: 13px;
   padding: 10px 14px;
   border-radius: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+}
+.ocr-result-banner.banner-warn {
+  background: #FFF7ED;
+  color: #D97706;
 }
 
-/* 资产卡片列表 */
-.asset-list {
-  margin-top: 12px;
-}
+/* 可编辑资产卡片 */
+.asset-edit-list { margin-top: 8px; }
 
-.asset-card {
+.asset-edit-card {
   background: white;
-  border-radius: 12px;
-  padding: 14px 16px;
-  margin-bottom: 10px;
+  border-radius: 14px;
+  margin-bottom: 14px;
+  overflow: hidden;
   border: 1.5px solid var(--gray-200);
-  transition: all 0.2s;
+  transition: all 0.25s;
 }
-
-.asset-card.active {
-  opacity: 0.5;
-  background: var(--gray-50);
+.asset-edit-card.saved {
   border-color: #10B981;
+  background: #F0FDF4;
 }
 
-.asset-card-header {
+.edit-card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 6px;
+  padding: 12px 16px 4px;
 }
-
-.asset-card-name {
-  font-size: 15px;
+.edit-card-index {
+  font-size: 14px;
   font-weight: 600;
-  color: var(--gray-800);
+  color: var(--gray-700);
 }
 
-.asset-card-amount {
-  font-size: 15px;
-  font-weight: 700;
-  color: #3B82F6;
+.edit-card-header .van-icon {
+  cursor: pointer;
+  padding: 4px;
 }
 
-.asset-card-detail {
-  display: flex;
-  gap: 12px;
-  font-size: 12px;
-  color: var(--gray-400);
-  margin-bottom: 10px;
+:deep(.van-cell-group--inset) {
+  margin: 0 12px;
+  border-radius: 10px;
 }
 
-.asset-card .van-button {
-  min-width: 90px;
+:deep(.van-field__label) {
+  color: var(--gray-600);
+  width: 80px;
 }
 
-.no-result {
-  text-align: center;
-  padding: 40px 0;
-  color: var(--gray-400);
-}
-
-.no-result-sub {
+.currency-tag {
   font-size: 13px;
-  color: var(--gray-300);
-  margin-top: 4px;
+  color: var(--gray-400);
+  background: var(--gray-100);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.edit-card-action {
+  padding: 10px 16px 14px;
+}
+
+.saved-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 13px;
+  color: #10B981;
+  font-weight: 500;
+  padding: 6px 0;
 }
 
 .action-btns {
